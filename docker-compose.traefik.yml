@@ -1,0 +1,56 @@
+# Docker Compose config for Docker Swarm mode stack deployment.
+
+# It requires your Swarm to have another stack/service which is Traefik proxy
+# with TLS dedicated network, label constraint, https redirect middleware and
+# TLS certificate resolver.
+# You can use example from https://github.com/iAnanich/shared-server-tools/tree/master
+
+# Required environment variables:
+# * STACK_NAME - name of the Docker Swarm Stack to use
+# * DOCKER_COMPOSE_CONFIG=docker-compose.traefik.yml set to use this file
+# * TRAEFIK_UPFRONT_NETWORK - name of external overlay network, connected to Traefik
+# * TRAEFIK_UPFRONT_LABEL - name of Traefik's label, used constraing (required to enable Traefik for service)
+# * TRAEFIK_HTTPS_REDIRECT_MIDDLEWARE - name of Traefik's middleware for redirecting from HTTP to HTTPS
+# * TRAEFIK_TLS_CERTRESOLVER - name of Traefik's TLS cert resolver
+# * TOR_PRIVOXY_IMAGE - name for Docker image with Tor & Privoxy
+# * TOR_PRIVOXY_DOMAIN - domain used for entrypoint
+# * TOR_PRIVOXY_BASICAUTH - basic auth userlist for entrypoint
+# * TOR_PRIVOXY_REPLICAS - number of `tor-privoxy` service replicas inside stack
+
+
+version: "3.7"
+
+services:
+  tor-privoxy:
+    image: ${TOR_PRIVOXY_IMAGE:?Varible TOR_PRIVOXY_IMAGE not set}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    networks:
+      - traefik-upfront
+    deploy:
+      replicas: ${TOR_PRIVOXY_REPLICAS:?Variable TOR_PRIVOXY_REPLICAS not set}
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=${TRAEFIK_UPFRONT_NETWORK:?Variable TRAEFIK_UPFRONT_NETWORK not set}
+        - traefik.constraint-label=${TRAEFIK_UPFRONT_LABEL:?Variable TRAEFIK_UPFRONT_LABEL not set}
+        # Http router - redirect to HTTPS
+        - traefik.http.routers.tor-privoxy-http.rule=Host(`${TOR_PRIVOXY_DOMAIN:?Variable TOR_PRIVOXY_DOMAIN not set}`)
+        - traefik.http.routers.tor-privoxy-http.entrypoints=http
+        - traefik.http.routers.tor-privoxy-http.middlewares=${TRAEFIK_HTTPS_REDIRECT_MIDDLEWARE:?Variable TRAEFIK_HTTPS_REDIRECT_MIDDLEWARE not set}
+        # Https router - TLS encryption and basic-auth
+        - traefik.http.routers.tor-privoxy-https.rule=Host(`${TOR_PRIVOXY_DOMAIN:?Variable TOR_PRIVOXY_DOMAIN not set}`)
+        - traefik.http.routers.tor-privoxy-https.entrypoints=https
+        # Enable TLS encryption
+        - traefik.http.routers.tor-privoxy-https.tls=true
+        - traefik.http.routers.tor-privoxy-https.tls.certresolver=${TRAEFIK_TLS_CERTRESOLVER:?Variable TRAEFIK_TLS_CERTRESOLVER not set}
+        # Define basic-auth middleware
+        - traefik.http.middlewares.tor-privoxy-auth.basicauth.users=${TOR_PRIVOXY_BASICAUTH:?Variable TOR_PRIVOXY_BASICAUTH not set}
+        - traefik.http.routers.tor-privoxy-https.middlewares=tor-privoxy-auth
+        # Pass to Privoxy's port
+        - traefik.http.services.tor-privoxy.loadbalancer.server.port=8118
+
+networks:
+  traefik-upfront:
+    external: true
+    name: ${TRAEFIK_UPFRONT_NETWORK:?Variable TRAEFIK_UPFRONT_NETWORK not set}

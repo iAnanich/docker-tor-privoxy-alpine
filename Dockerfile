@@ -1,6 +1,11 @@
 FROM alpine:3
 
-EXPOSE 8118 9050
+
+# Expose Privoxy port - http proxy
+EXPOSE 8118
+# Expose Tor port - socks5 proxy
+EXPOSE 9050
+
 
 RUN apk --update add privoxy tor runit tini
 
